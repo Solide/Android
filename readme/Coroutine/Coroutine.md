@@ -166,8 +166,90 @@ Java中线程具有五种状态：
 以上涉及到的任何一点，都是非常耗费性能的操作。
 
 
-什么是协程
+### 什么是协程
 
 协程，英文Coroutines，是一种比线程更加轻量级的存在。正如一个进程可以拥有多个线程一样，一个线程也可以拥有多个协程。
 
 ![avatar](./Image/4.jpeg)
+
+## 协程启动模式
+
+
+### DEFAULT
+立即执行协程体
+
+	runBlocking {
+	    val job = GlobalScope.launch(start = CoroutineStart.DEFAULT) {
+	        println("1: " + Thread.currentThread().name)
+	    }
+	    // 不需要调用join方法
+	    // job.join()
+	}
+	
+打印结果
+
+	1: DefaultDispatcher-worker-1
+
+CoroutineStart.DEFAULT启动模式不需要手动调用join或start等方法，而是在调用launch方法的时候就会自动执行协程体的代码
+
+
+### LAZY
+只有在需要的情况下才执行协程体
+
+	runBlocking {
+	    val job = GlobalScope.launch(start = CoroutineStart.LAZY) {
+	        println("1: " + Thread.currentThread().name)
+	    }
+	    // 一定调用join方法
+	    job.join()
+	}
+打印结果
+	
+	1: DefaultDispatcher-worker-1
+
+CoroutineStart.LAZY启动模式一定要手动调用join或start等方法，否者协程体不会执行
+
+
+### ATOMIC
+立即执行协程体，但在开始运行之前无法取消, 即开启协程会无视cancelling状态
+
+	runBlocking {
+	    val job = GlobalScope.launch(start = CoroutineStart.ATOMIC) {
+	        println("1: " + Thread.currentThread().name)
+	        delay(1000)
+	        println("2: " + Thread.currentThread().name)
+	    }
+	    job.cancel()
+	    delay(2000)
+	}
+
+打印结果
+
+	1: DefaultDispatcher-worker-1
+
+CoroutineStart. ATOMIC启动模式的协程体 即使调了cancel方法 也一定会执行，因为开启协程会无视cancelling状态；上面的example只打印了一句话，是因为执行delay(1000)的时候 发现协程处于关闭状态, 所以出现了JobCancellationException异常，导致下面的代码没有执行，如果 delay(1000) 这句代码用 try catch 捕获一下异常，就会继续执行下面的代码
+
+
+### UNDISPATCHED
+立即在当前线程执行协程体，直到第一个 suspend 调用 挂起之后的执行线程取决于上下文当中的调度器了
+
+	runBlocking {
+	    println("0: " + Thread.currentThread().name)
+	    // 注意这里没有用GlobalScope.launch
+	    // 因为GlobalScope.launch启动的是一个顶层协程, 无法关联当前协程的上下文（coroutineContext）, 导致结果有偏差
+	    launch(context = Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
+	        println("1: " + Thread.currentThread().name)
+	        delay(1000)
+	        println("2: " + Thread.currentThread().name)
+	    }
+	    delay(2000)
+	}
+
+打印结果
+
+	0: main
+	1: main
+	2: DefaultDispatcher-worker-1
+
+可见 0 和 1 的执行线程是一样的，当执行完delay(1000), 后面的代码执行线程取决于Dispatchers.Default调度器指定的线程，所以 2 在另一个线程中执行
+
